@@ -118,3 +118,16 @@ For the demo prism it exposes:
 - `side_faces` -> `vertical_planar_faces`
 
 This is the first step toward stable AI edits and later CAE boundary mapping without relying on fragile raw face IDs.
+
+
+## Current interaction demo
+
+The OCCT viewport now supports direct mouse interaction:
+
+- **left drag** -> rotate
+- **middle drag** or **Shift + left drag** -> pan
+- **right drag** or **mouse wheel** -> zoom
+- **left click** -> select a face through AIS
+- **double left click** -> fit view
+
+When a clicked face matches one of the demo named-region selectors, the **Named Regions** dock is synchronized automatically.

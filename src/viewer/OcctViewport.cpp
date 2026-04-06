@@ -4,19 +4,26 @@
 #include "selectors/SelectorTypes.h"
 #include "selectors/ShapeSelectors.h"
 
+#include <QMouseEvent>
 #include <QPaintEngine>
 #include <QPaintEvent>
+#include <QPoint>
 #include <QResizeEvent>
 #include <QShowEvent>
+#include <QWheelEvent>
 
 #ifdef AICAD_WITH_OCCT
 #include <AIS_ColoredShape.hxx>
 #include <AIS_InteractiveContext.hxx>
+#include <AIS_Shape.hxx>
 #include <Aspect_DisplayConnection.hxx>
 #include <Aspect_Window.hxx>
 #include <OpenGl_GraphicDriver.hxx>
 #include <Quantity_Color.hxx>
 #include <Quantity_TypeOfColor.hxx>
+#include <TopAbs_ShapeEnum.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <V3d_View.hxx>
 #include <V3d_Viewer.hxx>
@@ -27,6 +34,26 @@
 #include <Xw_Window.hxx>
 #endif
 #endif
+
+namespace
+{
+enum class NavigationMode
+{
+    None,
+    Rotate,
+    Pan,
+    Zoom
+};
+
+int faceSelectionMode()
+{
+#ifdef AICAD_WITH_OCCT
+    return AIS_Shape::SelectionMode(TopAbs_FACE);
+#else
+    return 0;
+#endif
+}
+}
 
 class OcctViewport::Impl
 {
@@ -47,6 +74,11 @@ public:
 
     std::vector<selectors::NamedRegion> namedRegions;
     std::string activeRegion;
+
+    NavigationMode navigationMode = NavigationMode::None;
+    QPoint pressPos;
+    QPoint lastPos;
+    bool movedSincePress = false;
 };
 
 OcctViewport::OcctViewport(QWidget* parent)
@@ -57,6 +89,8 @@ OcctViewport::OcctViewport(QWidget* parent)
     setAttribute(Qt::WA_PaintOnScreen);
     setAutoFillBackground(false);
     setMinimumSize(640, 480);
+    setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
 }
 
 OcctViewport::~OcctViewport()
@@ -191,6 +225,205 @@ void OcctViewport::paintEvent(QPaintEvent* event)
 #endif
 }
 
+void OcctViewport::mousePressEvent(QMouseEvent* event)
+{
+    QWidget::mousePressEvent(event);
+#ifdef AICAD_WITH_OCCT
+    if (!m_impl->initialized || m_impl->view.IsNull() || m_impl->context.IsNull())
+    {
+        return;
+    }
+
+    setFocus();
+    m_impl->pressPos = event->pos();
+    m_impl->lastPos = event->pos();
+    m_impl->movedSincePress = false;
+
+    if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier))
+    {
+        m_impl->navigationMode = NavigationMode::Pan;
+        emit interactionStatus("Pan: drag with Shift + left mouse.");
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton)
+    {
+        m_impl->navigationMode = NavigationMode::Rotate;
+        m_impl->context->MoveTo(event->position().x(), event->position().y(), m_impl->view, false);
+        m_impl->view->StartRotation(event->position().x(), event->position().y(), 0.4);
+        emit interactionStatus("Rotate: drag with left mouse. Click to select a face.");
+        return;
+    }
+
+    if (event->button() == Qt::MiddleButton)
+    {
+        m_impl->navigationMode = NavigationMode::Pan;
+        emit interactionStatus("Pan: drag with middle mouse.");
+        return;
+    }
+
+    if (event->button() == Qt::RightButton)
+    {
+        m_impl->navigationMode = NavigationMode::Zoom;
+        m_impl->view->StartZoomAtPoint(event->position().x(), event->position().y());
+        emit interactionStatus("Zoom: drag with right mouse or use the wheel.");
+        return;
+    }
+#else
+    Q_UNUSED(event)
+#endif
+}
+
+void OcctViewport::mouseMoveEvent(QMouseEvent* event)
+{
+    QWidget::mouseMoveEvent(event);
+#ifdef AICAD_WITH_OCCT
+    if (!m_impl->initialized || m_impl->view.IsNull() || m_impl->context.IsNull())
+    {
+        return;
+    }
+
+    const QPoint currentPos = event->pos();
+    if (m_impl->navigationMode == NavigationMode::Rotate && (event->buttons() & Qt::LeftButton))
+    {
+        if ((currentPos - m_impl->pressPos).manhattanLength() > 2)
+        {
+            m_impl->movedSincePress = true;
+        }
+        m_impl->view->Rotation(currentPos.x(), currentPos.y());
+        m_impl->view->Redraw();
+        m_impl->lastPos = currentPos;
+        return;
+    }
+
+    if (m_impl->navigationMode == NavigationMode::Pan
+        && ((event->buttons() & Qt::MiddleButton) || (event->buttons() & Qt::LeftButton)))
+    {
+        if ((currentPos - m_impl->pressPos).manhattanLength() > 2)
+        {
+            m_impl->movedSincePress = true;
+        }
+        const QPoint delta = currentPos - m_impl->lastPos;
+        m_impl->view->Pan(delta.x(), -delta.y(), 1.0, true);
+        m_impl->view->Redraw();
+        m_impl->lastPos = currentPos;
+        return;
+    }
+
+    if (m_impl->navigationMode == NavigationMode::Zoom && (event->buttons() & Qt::RightButton))
+    {
+        if ((currentPos - m_impl->pressPos).manhattanLength() > 2)
+        {
+            m_impl->movedSincePress = true;
+        }
+        m_impl->view->ZoomAtPoint(m_impl->pressPos.x(), m_impl->pressPos.y(), currentPos.x(), currentPos.y());
+        m_impl->view->Redraw();
+        m_impl->lastPos = currentPos;
+        return;
+    }
+
+    m_impl->context->MoveTo(currentPos.x(), currentPos.y(), m_impl->view, true);
+    if (m_impl->context->HasDetected())
+    {
+        emit interactionStatus("Hover: face detected under cursor.");
+    }
+    else
+    {
+        emit interactionStatus("Ready: left drag rotate, middle drag pan, right drag or wheel zoom, left click select.");
+    }
+#else
+    Q_UNUSED(event)
+#endif
+}
+
+void OcctViewport::mouseReleaseEvent(QMouseEvent* event)
+{
+    QWidget::mouseReleaseEvent(event);
+#ifdef AICAD_WITH_OCCT
+    if (!m_impl->initialized || m_impl->view.IsNull() || m_impl->context.IsNull())
+    {
+        return;
+    }
+
+    const bool wasClick = !m_impl->movedSincePress
+        && (event->button() == Qt::LeftButton)
+        && m_impl->navigationMode == NavigationMode::Rotate;
+
+    m_impl->navigationMode = NavigationMode::None;
+
+    if (!wasClick)
+    {
+        emit interactionStatus("Navigation complete.");
+        return;
+    }
+
+    m_impl->context->MoveTo(event->position().x(), event->position().y(), m_impl->view, false);
+    m_impl->context->SelectDetected();
+    m_impl->context->UpdateCurrentViewer();
+    m_impl->view->Redraw();
+
+    const QString selectedRegion = namedRegionForFace();
+    if (!selectedRegion.isEmpty())
+    {
+        emit pickedNamedRegion(selectedRegion);
+        emit interactionStatus(QString("Selected face mapped to named region '%1'.").arg(selectedRegion));
+    }
+    else
+    {
+        emit interactionStatus(describeSelectedShape());
+    }
+#else
+    Q_UNUSED(event)
+#endif
+}
+
+void OcctViewport::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    QWidget::mouseDoubleClickEvent(event);
+#ifdef AICAD_WITH_OCCT
+    if (!m_impl->initialized || m_impl->view.IsNull())
+    {
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton)
+    {
+        m_impl->view->FitAll(0.01, false);
+        m_impl->view->ZFitAll(0.01);
+        m_impl->view->Redraw();
+        emit interactionStatus("View fit to visible geometry.");
+    }
+#else
+    Q_UNUSED(event)
+#endif
+}
+
+void OcctViewport::wheelEvent(QWheelEvent* event)
+{
+    QWidget::wheelEvent(event);
+#ifdef AICAD_WITH_OCCT
+    if (!m_impl->initialized || m_impl->view.IsNull())
+    {
+        return;
+    }
+
+    const QPoint angle = event->angleDelta();
+    if (angle.y() == 0)
+    {
+        return;
+    }
+
+    const QPoint pos = event->position().toPoint();
+    const int zoomOffset = angle.y() > 0 ? -40 : 40;
+    m_impl->view->StartZoomAtPoint(pos.x(), pos.y());
+    m_impl->view->ZoomAtPoint(pos.x(), pos.y(), pos.x(), pos.y() + zoomOffset);
+    m_impl->view->Redraw();
+    emit interactionStatus(angle.y() > 0 ? "Zoomed in." : "Zoomed out.");
+#else
+    Q_UNUSED(event)
+#endif
+}
+
 QPaintEngine* OcctViewport::paintEngine() const
 {
     return nullptr;
@@ -232,6 +465,7 @@ bool OcctViewport::initializeOcct()
     m_impl->view->Redraw();
 
     m_impl->initialized = true;
+    emit interactionStatus("OCCT viewer ready: left drag rotate, middle drag pan, right drag or wheel zoom, left click select.");
     return true;
 #else
     return false;
@@ -279,11 +513,76 @@ bool OcctViewport::redisplayCurrentShape()
 
     m_impl->context->Display(m_impl->displayedShape, false);
     m_impl->context->SetDisplayMode(m_impl->displayedShape, AIS_Shaded, false);
+    m_impl->context->Deactivate(m_impl->displayedShape);
+    m_impl->context->Activate(m_impl->displayedShape, faceSelectionMode(), Standard_True);
+    m_impl->context->UpdateCurrentViewer();
     m_impl->view->FitAll(0.01, false);
     m_impl->view->ZFitAll(0.01);
     m_impl->view->Redraw();
     return true;
 #else
     return false;
+#endif
+}
+
+QString OcctViewport::namedRegionForFace() const
+{
+#ifdef AICAD_WITH_OCCT
+    if (m_impl->context.IsNull() || !m_impl->context->HasSelectedShape())
+    {
+        return {};
+    }
+
+    const TopoDS_Shape selectedShape = m_impl->context->SelectedShape();
+    if (selectedShape.IsNull() || selectedShape.ShapeType() != TopAbs_FACE)
+    {
+        return {};
+    }
+
+    const TopoDS_Face selectedFace = TopoDS::Face(selectedShape);
+    for (const auto& region : m_impl->namedRegions)
+    {
+        const auto matches = selectors::resolveFaces(m_impl->currentShape, region.query);
+        for (const auto& face : matches)
+        {
+            if (face.IsSame(selectedFace))
+            {
+                return QString::fromStdString(region.name);
+            }
+        }
+    }
+#else
+    Q_UNUSED(this)
+#endif
+    return {};
+}
+
+QString OcctViewport::describeSelectedShape() const
+{
+#ifdef AICAD_WITH_OCCT
+    if (m_impl->context.IsNull() || !m_impl->context->HasSelectedShape())
+    {
+        return "No shape selected.";
+    }
+
+    const TopoDS_Shape selectedShape = m_impl->context->SelectedShape();
+    if (selectedShape.IsNull())
+    {
+        return "No shape selected.";
+    }
+
+    switch (selectedShape.ShapeType())
+    {
+        case TopAbs_FACE:
+            return "Selected a face.";
+        case TopAbs_EDGE:
+            return "Selected an edge.";
+        case TopAbs_VERTEX:
+            return "Selected a vertex.";
+        default:
+            return "Selected a shape.";
+    }
+#else
+    return {};
 #endif
 }

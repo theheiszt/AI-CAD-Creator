@@ -29,13 +29,32 @@ ViewerWindow::ViewerWindow(QWidget* parent)
     createMenus();
     populateFeatureTree();
 
+    connect(m_viewport, &OcctViewport::interactionStatus, this,
+        [this](const QString& message) {
+            statusBar()->showMessage(message, 4000);
+        });
+
+    connect(m_viewport, &OcctViewport::pickedNamedRegion, this,
+        [this](const QString& name) {
+            if (!m_namedRegionsTree)
+            {
+                return;
+            }
+
+            const QList<QTreeWidgetItem*> matches = m_namedRegionsTree->findItems(name, Qt::MatchExactly, 0);
+            if (!matches.isEmpty())
+            {
+                m_namedRegionsTree->setCurrentItem(matches.front());
+            }
+        });
+
     statusBar()->showMessage("Initializing OCCT AIS viewer...");
     QTimer::singleShot(0, this, [this]() {
         if (m_viewport->displayDemoPrism())
         {
             refreshNamedRegions();
             m_viewport->highlightNamedRegion("top_face");
-            statusBar()->showMessage("Displayed demo prism and loaded named region selectors.");
+            statusBar()->showMessage("Displayed demo prism and loaded named region selectors. Left drag rotates, middle drag pans, right drag or wheel zooms, left click selects.");
         }
         else
         {
