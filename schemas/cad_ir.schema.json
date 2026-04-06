@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/cad_ir.schema.json",
+  "title": "CAD IR",
+  "type": "object",
+  "required": [
+    "version",
+    "units",
+    "part_name",
+    "features"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "units": {
+      "type": "string",
+      "enum": [
+        "mm",
+        "inch"
+      ]
+    },
+    "part_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/feature"
+      }
+    },
+    "named_regions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/namedRegion"
+      }
+    }
+  },
+  "$defs": {
+    "numberOrRef": {
+      "oneOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "object",
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "point2": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/numberOrRef"
+        },
+        {
+          "$ref": "#/$defs/numberOrRef"
+        }
+      ],
+      "items": false
+    },
+    "feature": {
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "sketch",
+            "extrude",
+            "cut",
+            "fillet",
+            "hole"
+          ]
+        },
+        "plane": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "distance": {
+          "$ref": "#/$defs/numberOrRef"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "new_body",
+            "join",
+            "cut"
+          ]
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "rectangle",
+                  "circle",
+                  "line"
+                ]
+              },
+              "origin": {
+                "$ref": "#/$defs/point2"
+              },
+              "width": {
+                "$ref": "#/$defs/numberOrRef"
+              },
+              "height": {
+                "$ref": "#/$defs/numberOrRef"
+              },
+              "center": {
+                "$ref": "#/$defs/point2"
+              },
+              "radius": {
+                "$ref": "#/$defs/numberOrRef"
+              },
+              "start": {
+                "$ref": "#/$defs/point2"
+              },
+              "end": {
+                "$ref": "#/$defs/point2"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "diameter": {
+          "$ref": "#/$defs/numberOrRef"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point2"
+          }
+        },
+        "radius": {
+          "$ref": "#/$defs/numberOrRef"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "namedRegion": {
+      "type": "object",
+      "required": [
+        "name",
+        "selector"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "object",
+          "required": [
+            "rule"
+          ],
+          "properties": {
+            "rule": {
+              "type": "string",
+              "enum": [
+                "max_z_planar_face",
+                "min_z_planar_face",
+                "largest_planar_face",
+                "vertical_planar_faces",
+                "all_faces"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

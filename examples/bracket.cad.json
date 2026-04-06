@@ -1,0 +1,70 @@
+{
+  "version": "0.1",
+  "units": "mm",
+  "part_name": "mounting_bracket",
+  "features": [
+    {
+      "id": "sk1",
+      "type": "sketch",
+      "plane": "XY",
+      "entities": [
+        {
+          "type": "rectangle",
+          "origin": [
+            0,
+            0
+          ],
+          "width": 100,
+          "height": 50
+        }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "ex1",
+      "type": "extrude",
+      "profile": "sk1",
+      "distance": 6,
+      "operation": "new_body"
+    },
+    {
+      "id": "h1",
+      "type": "hole",
+      "target": "ex1",
+      "diameter": 5,
+      "points": [
+        [
+          10,
+          25
+        ],
+        [
+          90,
+          25
+        ]
+      ]
+    }
+  ],
+  "named_regions": [
+    {
+      "name": "top_face",
+      "description": "Highest planar face for future holes or boundary conditions.",
+      "selector": {
+        "rule": "max_z_planar_face"
+      }
+    },
+    {
+      "name": "bottom_face",
+      "description": "Lowest planar face / base reference.",
+      "selector": {
+        "rule": "min_z_planar_face"
+      }
+    },
+    {
+      "name": "side_faces",
+      "description": "All vertical side walls.",
+      "selector": {
+        "rule": "vertical_planar_faces"
+      }
+    }
+  ]
+}
